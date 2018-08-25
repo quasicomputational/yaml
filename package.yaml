@@ -91,6 +91,11 @@ library:
     cpp-options: -DWINDOWS
 
 executables:
+  prof:
+    ghc-options: -rtsopts
+    main: main.hs
+    source-dirs: prof
+    dependencies: yaml
   json2yaml:
     main: json2yaml.hs
     source-dirs: exe
