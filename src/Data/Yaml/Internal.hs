@@ -25,6 +25,7 @@ import Control.Monad (when, unless)
 import Control.Monad.Trans.Resource (ResourceT, runResourceT)
 import Control.Monad.State.Strict
 import Control.Monad.Reader
+import Data.IORef
 import Data.Aeson
 import Data.Aeson.Internal (JSONPath, JSONPathElement(..))
 import Data.Aeson.Types hiding (parse)
@@ -137,7 +138,7 @@ data ParseState = ParseState {
 , parseStateWarnings :: [Warning]
 }
 
-type Parse = ReaderT JSONPath (StateT ParseState (ResourceT IO))
+type Parse = ReaderT (IORef JSONPath) (StateT ParseState (ResourceT IO))
 
 requireEvent :: Event -> ConduitM Event o Parse ()
 requireEvent e = do
@@ -198,6 +199,13 @@ textToScientific = Atto.parseOnly (num <* Atto.endOfInput)
         isOctalDigit c = (c >= '0' && c <= '7')
         step a c = (a `shiftL` 3) .|. fromIntegral (ord c - 48)
 
+
+withModifiedPath :: JSONPathElement -> ConduitM e o Parse a -> ConduitM e o Parse a
+withModifiedPath element action = do
+  ref <- ask
+  liftIO $ modifyIORef' ref (element :)
+  action <* liftIO (modifyIORef' ref (drop 1))
+
 parseO :: ConduitM Event o Parse Value
 parseO = do
     me <- CL.head
@@ -225,7 +233,7 @@ parseS !n a front = do
             mapM_ (defineAnchor res) a
             return res
         _ -> do
-            o <- local (Index n :) parseO
+            o <- withModifiedPath (Index n) parseO
             parseS (succ n) a $ front . (:) o
 
 parseM :: Set Text
@@ -250,11 +258,12 @@ parseM mergedKeys a front = do
                             Just v -> liftIO $ throwIO $ NonStringKeyAlias an v
                     _ -> liftIO $ throwIO $ UnexpectedEvent me Nothing
 
-            (mergedKeys', al') <- local (Key s :) $ do
+            (mergedKeys', al') <- withModifiedPath (Key s) $ do
               o <- parseO
               let al = do
                       when (M.member s front && Set.notMember s mergedKeys) $ do
-                          path <- reverse <$> ask
+                          ref <- ask
+                          path <- reverse <$> liftIO (readIORef ref)
                           addWarning (DuplicateKey path)
                       return (Set.delete s mergedKeys, M.insert s o front)
               if s == pack "<<"
@@ -276,7 +285,8 @@ decodeHelper src = do
     -- This used to be tryAny, but the fact is that catching async
     -- exceptions is fine here. We'll rethrow them immediately in the
     -- otherwise clause.
-    x <- try $ runResourceT $ runStateT (runReaderT (runConduit $ src .| parse) []) (ParseState Map.empty [])
+    ref <- newIORef []
+    x <- try $ runResourceT $ runStateT (runReaderT (runConduit $ src .| parse) ref) (ParseState Map.empty [])
     case x of
         Left e
             | Just pe <- fromException e -> return $ Left pe
@@ -288,7 +298,8 @@ decodeHelper_ :: FromJSON a
               => ConduitM () Event Parse ()
               -> IO (Either ParseException ([Warning], a))
 decodeHelper_ src = do
-    x <- try $ runResourceT $ runStateT (runReaderT (runConduit $ src .| parse) []) (ParseState Map.empty [])
+    ref <- newIORef []
+    x <- try $ runResourceT $ runStateT (runReaderT (runConduit $ src .| parse) ref) (ParseState Map.empty [])
     return $ case x of
         Left e
             | Just pe <- fromException e -> Left pe
