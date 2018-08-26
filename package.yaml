@@ -96,6 +96,11 @@ executables:
     main: main.hs
     source-dirs: prof
     dependencies: yaml
+  reader:
+    ghc-options: -rtsopts
+    main: reader.hs
+    source-dirs: prof
+    dependencies: yaml
   json2yaml:
     main: json2yaml.hs
     source-dirs: exe
