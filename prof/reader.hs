@@ -9,19 +9,19 @@ import           Control.Monad.Reader
 import           Control.Concurrent
 
 main :: IO ()
-main = mainFoo
+main = mainConduit
+-- main = mainFoo
 
 
 mainConduit :: IO ()
-mainConduit = runReaderT (runConduit (foo 0)) [] >>= print . length
+mainConduit = runReaderT (runConduit (foo 0)) ()
 
 mainFoo :: IO ()
-mainFoo = runReaderT (foo 0) [] >>= print . length
+mainFoo = runReaderT (foo 0) ()
 
-foo :: (MonadReader JSONPath m, MonadIO m) => Int -> m JSONPath
+foo :: (MonadReader () m, MonadIO m) => Int -> m ()
 foo !n
   | n > 1000000 = ask
   | otherwise = do
       -- liftIO yield
-      local (let !x = Index n in let !xs = (\ ys -> x : ys) in xs) (foo $ succ n)
-      -- local (Index n :) (foo $ succ n)
+      local id (foo $ succ n)
